@@ -1,0 +1,1679 @@
+---
+title: "Analysis of various macroeconomic characteristics"
+author:
+- Tin Ferković
+- Luka Ilić
+- Fani Sentinella-Jerbić
+- Ana Terović
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  pdf_document:
+    highlight: tango
+    number_sections: yes
+    toc: yes
+  html_notebook: default
+  html_document:
+    toc: yes
+    df_print: paged
+---
+
+```{r, include=FALSE}
+require(tidyr)
+require(caret)
+require(e1071)
+require(gridExtra)
+require(ggplot2)
+require(nortest)
+require(fastDummies)
+require(nortest)
+```
+
+```{r,  include=FALSE}
+dataset <- read.csv(file='macro_data.csv', sep = ',', stringsAsFactors = FALSE)
+num_of_rows <- nrow(dataset)
+num_of_col <- ncol(dataset)
+```
+
+\newpage
+
+# INTRODUCTION
+
+Macroeconomics examines economy as a whole and is an integral part in governmental decision making on both a national and global scale. Our dataset contains various macroeconomic features, such as GDP per capita and employment rates, for 66 countries.
+
+The main topics covered are examining distributions of various features and whether there are significant outliers, relation between employment rates and GDP, and which variables explain differences in life expectancy. Considering the current global state, we also tried to focus on features which possibly affect climate change and health expenditure (during a pandemic).
+
+Through the analysis we compared Europe to the rest of the world as well as different European regions between each other.
+
+We used descriptive statistics, t-test, ANOVA and also examined linear dependencies through simple and multivariate regression.
+
+Ending consists of a conclusion about everything we have done and comments on the dataset and possible future work.
+
+
+## Initial mining
+
+
+```{r,  include=FALSE}
+#adding a column for colour
+#to add colors to your plot add col=colorData$Color at the the end of function call, see examples below
+colorData <- read.csv(file='macro_data.csv', sep = ',')
+colorData$Color = "black"
+colorData$Color[dataset$country == "Croatia"]="red"
+colorData$Color
+```
+Our dataset requires some initial cleaning before doing any analysis. We have detected some dirty data that had to be inspected.
+```{r,  include=FALSE}
+dataset$Net.Official.Development.Assist..received....of.GNI.
+```
+For example, number of individuals using the Internet per 100 inhabitants:
+```{r, echo=FALSE}
+dataset$Individuals.using.the.Internet..per.100.inhabitants.
+```
+
+```{r,  include=FALSE}
+dataset$Pop..using.improved.sanitation.facilities..urban.rural....
+```
+
+Such features contained too many nonsensical values so we concluded that it makes sense to remove them from the dataset.
+It was also necessary to split some of the features whose values were of shape $value/value$ into separate features as well as convert them to proper types.
+```{r,  include=FALSE}
+# remove columns Pop..using.improved.sanitation.facilities..urban.rural.... and Net.Official.Development.Assist..received... from dataset since they hold too many -99 values
+# remove column Individuals.using.the.Internet..per.100.inhabitants from the dataset since the interpretation of values is uncertain
+drops <- c("Pop..using.improved.sanitation.facilities..urban.rural....","Net.Official.Development.Assist..received....of.GNI.", "Individuals.using.the.Internet..per.100.inhabitants.")
+dataset <- dataset[ , !(names(dataset) %in% drops)]
+```
+
+```{r,  include=FALSE}
+dataset <- tidyr::separate(data=dataset, col=Pop..using.improved.drinking.water..urban.rural...., into=c("Pop..using.improved.drinking.water..urban.", "Pop..using.improved.drinking.water..rural."), sep = "/", remove=TRUE, convert=TRUE)
+```
+```{r,  include=FALSE}
+dataset$Pop..using.improved.drinking.water..rural.
+```
+
+```{r,  include=FALSE}
+dataset$Pop..using.improved.drinking.water..rural. = as.numeric(dataset$Pop..using.improved.drinking.water..rural.)
+```
+```{r,  include=FALSE}
+dataset$Pop..using.improved.drinking.water..rural.
+```
+```{r,  include=FALSE}
+dataset <- tidyr::separate(data=dataset, col=Labour.force.participation..female.male.pop...., into=c("Labour.force.participation..male.pop", "Labour.force.participation..female.pop"), sep = "/", remove=TRUE, convert=TRUE)
+```
+
+```{r,  include=FALSE}
+dataset <- tidyr::separate(data=dataset, col=Population.age.distribution..0.14...60..years...., into=c("Population.age.distribution.0-14.years....", "Population.age.distribution.60.years...."), sep = "/", remove=TRUE, convert=TRUE)
+```
+
+```{r, include=FALSE}
+dataset <- tidyr::separate(data=dataset, col=International.migrant.stock..000...of.total.pop.., into=c("International.mignant.stock.thousands", "International.mignant.stock.percent"), sep = "/", remove=TRUE, convert=TRUE)
+```
+
+```{r,  include=FALSE}
+dataset <- tidyr::separate(data=dataset, col=Education..Primary.gross.enrol..ratio..f.m.per.100.pop.., into=c("Education..Primary.gross.enrol..ratio..f.per.100.pop..", "Education..Primary.gross.enrol..ratio..m.per.100.pop.."), sep = "/", remove=TRUE, convert=TRUE)
+```
+
+```{r,  include=FALSE}
+dataset <- tidyr::separate(data=dataset, col=Education..Tertiary.gross.enrol..ratio..f.m.per.100.pop.., into=c("Education..Tertiary.gross.enrol..ratio..f.per.100.pop..", "Education..Tertiary.gross.enrol..ratio..m.per.100.pop.."), sep = "/", remove=TRUE, convert=TRUE)
+```
+
+```{r,  include=FALSE}
+dataset$Education..Tertiary.gross.enrol..ratio..f.per.100.pop.. = as.numeric(dataset$Education..Tertiary.gross.enrol..ratio..f.per.100.pop..)
+
+dataset$Education..Tertiary.gross.enrol..ratio..m.per.100.pop.. = as.numeric(dataset$Education..Tertiary.gross.enrol..ratio..m.per.100.pop..)
+```
+
+```{r,  include=FALSE}
+dataset <- tidyr::separate(data=dataset, col=Forested.area....of.land.area., into=c("Forested.area", "Forested.percent.of.area"), sep = "/", remove=TRUE, convert=TRUE)
+```
+
+
+```{r}
+dataset[dataset == -99] <- NA
+```
+For the sake of convenience, we also replaced all the cells containing value $-99$ with NA. Basically, in this dataset, $-99$ is a replacement for NA. Lastly, we converted to numeric all the values convertible to numeric. For the ones which can't be converted, we generated NA's.
+
+```{r, include=FALSE}
+#šta ovo predstavlja?
+dataset$Energy.supply.per.capita..Gigajoules.
+```
+
+```{r,  include=FALSE}
+#OVO PRODISKUTIRATI, ALI TRENUTNO MI TREBA DA BI SE NEKI KASNIJI WARNINGI MAKNULI JER NE MOGU RADIT SA STRINGOM "~0.0"
+dataset[dataset == "-~0.0"] <- "-0.05"
+dataset[dataset == "~0.0"] <- "0.05"
+
+all_features <- colnames(dataset)
+all_features <- all_features[!all_features %in% c("X", "country", "Region", "Energy.supply.per.capita..Gigajoules.")]
+for(feature in all_features) {
+  dataset[[feature]] = as.numeric(dataset[[feature]])
+}
+
+dataset$Health..Physicians..per.1000.pop..
+```
+
+
+
+```{r,  include=FALSE}
+#Find how many missing values every column has
+for (col_name in names(dataset)){
+  if (sum(is.na(dataset[,col_name])) > 0){
+    cat('Number of missing values for feature ',col_name, ': ', sum(is.na(dataset[,col_name])),'\n')
+  }
+}
+```
+
+```{r,  include=FALSE}
+mean_quality = fivenum(dataset$Quality.Of.Life.Index)[3]
+high_quality_of_life_nations <- dataset[which(dataset$Quality.Of.Life.Index > mean_quality), ]
+low_quality_of_life_nations <- dataset[which(dataset$Quality.Of.Life.Index < mean_quality), ]
+```
+```{r, include=FALSE}
+high_quality_of_life_nations_women_parliament_seats = high_quality_of_life_nations$Seats.held.by.women.in.national.parliaments..
+low_quality_of_life_nations_women_parliament_seats = low_quality_of_life_nations$Seats.held.by.women.in.national.parliaments..
+
+```
+
+```{r,  include=FALSE}
+#function which checks for normality
+checkForNormalDistribution <- function(data) {
+  length_of_data = length(data)
+  #plot the data (histogram)
+  hist(data, main='Histogram') #breaks might need to be changed depending on the data
+  
+  #make a q-q plot
+  #q-q plot is a scatterplot created by plotting two sets of quantiles against each other
+  #if they come from the same distribution (and in this case we're testing if some data comes from a normal distribution), we should see points forming a roughly straight line
+  qqnorm(data, pch = 1,col =colorData$Color)
+  qqline(data, col = "steelblue", lwd = 2, distribution = qnorm)
+  
+  # do a shapiro-wilk test to get a p-value of a null hypothesis that data is normally distribuited
+  shapiro.test(data)
+  
+  #KS test na normalnost 
+  #ks.test(data,'pnorm')
+
+  #require(nortest)
+  #lillie.test(data)
+  #ks.test(rstandard(selected.model),'pnorm')
+}
+```
+
+
+```{r,  include=FALSE}
+#finding outliers - method 1 - elements outside of interval [Q1 - 1,5IQR, Q3 + 1,5IQR]
+findOutliers <- function(data, shouldPrint) {
+  outliers_values <- boxplot.stats(data)$out
+  if(length(outliers_values > 0)) {
+    outliers_rows = which(data %in% c(outliers_values))
+    if(shouldPrint == TRUE) {
+      cat("Outlier values: ")
+      print(outliers_values)
+  
+      cat("Outlier row numbers: ")
+      print(outliers_rows)
+    
+      boxplot(data, main = "Boxplot")
+      mtext(paste("Outlier values: ", paste(outliers_values, collapse = ", ")))
+    }
+    
+    
+    return(outliers_rows)
+  }
+  return(NULL)
+}
+```
+
+```{r,  include=FALSE}
+#finding outliers - method 2 - elements before and after certain percentile
+findOutliers2 <- function(data, shouldPrint) {
+  lower_bound <- quantile(data, 0.05)
+  upper_bound <- quantile(data, 0.95)
+  
+  outliers_rows <- which(data < lower_bound | data > upper_bound)
+  if(length(outliers_rows) > 0) {
+    
+    outliers_values <- data[c(outliers_rows)]
+    
+    if(shouldPrint == TRUE) {
+      cat("Outlier values: ")
+      print(outliers_values)
+    
+      cat("Outlier row numbers: ")
+      print(outliers_rows) 
+    }
+    
+    return(outliers_rows)
+  }
+  return(NULL)
+}
+```
+
+
+```{r, include=FALSE}
+rows <- findOutliers(dataset$Population.in.thousands..2017., TRUE)
+
+#print only rows which are population outliers
+if(!is.null(rows)) {
+  print(dataset[rows, ])
+}
+```
+```{r,  include=FALSE}
+rows <- findOutliers2(dataset$Surface.area..km2., TRUE)
+
+#print only rows which are surface outliers
+if(!is.null(rows)) {
+  print(dataset[rows, ])
+}
+```
+
+\newpage
+
+```{r, include=FALSE}
+dataset.with.dummies.with.qatar = dummy_cols(dataset, select_columns='Region')
+continents <- dataset.with.dummies.with.qatar
+continents$Colour = "black"
+
+#coloring data based kinda on continents
+if(!is.null(continents)) {
+  #Europe
+  continents$Colour[continents$Region=="SouthernEurope"] = "green"
+  continents$Colour[continents$Region=="NorthernEurope"] = "green"
+  continents$Colour[continents$Region=="WesternEurope"] = "green"
+  continents$Colour[continents$Region=="EasternEurope"] = "green"
+  #Africa
+  continents$Colour[continents$Region=="SouthernAfrica"] = "yellow"
+  continents$Colour[continents$Region=="NorthernAfrica"] = "yellow"
+  #Asia
+  continents$Colour[continents$Region=="SouthernAsia"] = "red"
+  continents$Colour[continents$Region=="NorthernAsia"] = "red"
+  continents$Colour[continents$Region=="WesternAsia"] = "red"
+  continents$Colour[continents$Region=="EasternAsia"] = "red"
+  continents$Colour[continents$Region=="South-easternAsia"] = "red"
+  #Americas
+  continents$Colour[continents$Region=="SouthAmerica"] = "blue"
+  continents$Colour[continents$Region=="NorthernAmerica"] = "blue"
+  continents$Colour[continents$Region=="CentralAmerica"] = "blue"
+  #Oceania
+  continents$Colour[continents$Region=="Oceania"] = "purple"
+}
+```
+
+```{r, include=FALSE}
+#Europe colours
+europe<- continents[continents$Region=="WesternEurope", ]
+b <- continents[continents$Region=="EasternEurope",]
+c <- continents[continents$Region=="NorthernEurope",]
+d <- continents[continents$Region=="SouthernEurope",]
+europe<- merge(europe,b, all = TRUE)
+europe <- merge(europe,c, all = TRUE)
+europe <- merge(europe,d, all = TRUE)
+
+```
+
+
+
+```{r, include=FALSE}
+#playing with women in parlament
+rest_of_the_world = continents[!continents$country %in% europe$country, ]
+
+hist(rest_of_the_world$Seats.held.by.women.in.national.parliaments..)
+plot(rest_of_the_world$Seats.held.by.women.in.national.parliaments.., col=rest_of_the_world$Colour)
+boxplot(rest_of_the_world$Seats.held.by.women.in.national.parliaments..)
+
+hist(europe$Seats.held.by.women.in.national.parliaments..)
+plot(europe$Seats.held.by.women.in.national.parliaments..,col=europe$Colour)
+boxplot(europe$Seats.held.by.women.in.national.parliaments..)
+summary(rest_of_the_world$Seats.held.by.women.in.national.parliaments..)
+summary(europe$Seats.held.by.women.in.national.parliaments..)
+
+```
+
+```{r, include=FALSE}
+#Europe fun
+plot(europe$GDP.per.capita..current.US..,col=europe$Colour)
+plot(europe$Employment..Agriculture....of.employed.,col=europe$Colour)
+plot(europe$Infant.mortality.rate..per.1000.live.births,col=europe$Colour)
+plot(europe$Health..Physicians..per.1000.pop..,col=europe$Colour)
+plot(europe$Education..Government.expenditure....of.GDP.,col=europe$Colour)
+```
+
+```{r, include=FALSE}
+rest_of_the_world = dataset[!dataset$country %in% europe$country, ]
+rest_of_the_world
+```
+
+## Descriptive statistics
+
+Descriptive statistics, in short, help describe and understand the features of a specific dataset by giving short summaries about the sample and measures of the data. As a good intro to more complex topics, we are here presenting a general overview of our dataset.
+
+
+```{r, echo=FALSE}
+cat(' Number of rows and columns, respectively: ', num_of_rows, num_of_col)
+```
+
+One can see that our dataset is quite peculiar, having more columns than rows. We will keep this in mind through further analysis.
+
+We want to see which parts of the world are represented in our dataset. Here we are using a polar graph for visualization.
+
+
+```{r, echo=FALSE}
+bar <- ggplot(data = dataset) + 
+  geom_bar(
+    mapping = aes(x = Region, fill = Region), 
+    show.legend = FALSE,
+    width = 1, 
+  ) + 
+  theme(aspect.ratio = 1) 
+
+bar + coord_polar() + 
+      labs(x = NULL , y = NULL) + 
+      ggtitle("Number of countries by area")
+
+
+```
+
+\newpage
+
+### Distributions
+
+Wanting to examine the distributions across all countries, we shall plot multiple histograms with mean as a measure of central tendency as well as the density to get inspiration for further analysis. 
+
+One of the most common indicators of a country's well being is its GDP, so we plot the histogram of GDP _per capita_ as it generally delivers more of a prosperity measure than the total GDP. We are expecting to see a smaller number of countries with a large GDP _per capita_ and a larger amount of countries with small or average GDP.
+
+```{r, echo=FALSE}
+gdp_histo <- ggplot(dataset, aes(x=GDP.per.capita..current.US..)) + 
+  geom_histogram(aes(y=..density..), color="black", fill="white", bins=8) + 
+  geom_density(alpha=.2, fill="pink")  + 
+  geom_vline(aes(xintercept=mean(GDP.per.capita..current.US..)),
+            color="black", linetype="dashed", size=1) +
+   ggtitle("GDP per capita") + xlab("GDP per capita in US $") + ylab("Density")
+
+gdp_histo_trans <- ggplot(dataset, aes(x=GDP.per.capita..current.US..)) + 
+  geom_histogram(aes(y=..density..), color="black", fill="white", bins=8) + 
+  geom_density(alpha=.2, fill="pink")  + 
+  geom_vline(aes(xintercept=mean(GDP.per.capita..current.US..)),
+            color="black", linetype="dashed", size=1) + scale_x_log10() +
+   ggtitle("GDP per capita transformed") + xlab("GDP per capita in US $") + ylab("Density")
+
+grid.arrange(gdp_histo,
+             gdp_histo_trans,
+             ncol = 2)  
+```
+
+As we have assumed, there are more countries with lower GDP _per capita_ than those with a high GDP _per capita_. Considering we have an asymmetrical distribution,  we decided to plot the mean as an expression of central tendency as seen on the graph in the shape of a dashed line. However, in order to run any significant tests one should check for normal distribution so we decided to also plot the log transformed histogram. Unfortunately, the distribution was not normal even after transformation.
+
+\newpage
+
+Furthermore, we have plotted various other features in order to get a grip of the way our data behaves and gain some intuition. 
+
+```{r, echo=FALSE}
+
+density_purchasing_power <- ggplot(dataset, aes(x=Purchasing.Power.Index)) + 
+  geom_histogram(aes(y=..density..), color="black", fill="white", bins=8) + 
+  geom_density(alpha=.2, fill="lightblue") + 
+  geom_vline(aes(xintercept=mean(Purchasing.Power.Index)),
+            color="black", linetype="dashed", size=1) +
+  ggtitle("Purchasing power") + xlab("Purchasing power index") + ylab("Density")
+
+
+density_health <- ggplot(dataset, aes(x=Health.Care.Index)) + 
+  geom_histogram(aes(y=..density..), color="black", fill="white", bins=8) + 
+  geom_density(alpha=.2, fill="lightblue") +  
+  geom_vline(aes(xintercept=mean(Health.Care.Index)),
+            color="black", linetype="dashed", size=1) +
+  ggtitle("Health care") + xlab("Health care index") + ylab("Density")
+
+
+density_pollution <- ggplot(dataset, aes(x=Pollution.index)) + 
+  geom_histogram(aes(y=..density..), color="black", fill="white", bins=8) + 
+  geom_density(alpha=.2, fill="lightblue")+ 
+  geom_vline(aes(xintercept=mean(Pollution.index)),
+            color="black", linetype="dashed", size=1) +
+  ggtitle("Pollution") + xlab("Pollution index") + ylab("Density")
+
+density_safety <- ggplot(dataset, aes(x=Safety.Index)) + 
+  geom_histogram(aes(y=..density..), color="black", fill="white", bins=8) + 
+  geom_density(alpha=.2, fill="lightblue")+ 
+  geom_vline(aes(xintercept=mean(Safety.Index)),
+            color="black", linetype="dashed", size=1) + 
+  ggtitle("Safety") + xlab("Safety index") + ylab("Density")
+
+density_mobile <- ggplot(dataset, aes(x=Mobile.cellular.subscriptions..per.100.inhabitants..1)) + 
+  geom_histogram(aes(y=..density..), color="black", fill="white", bins=8) + 
+  geom_density(alpha=.2, fill="lightblue") + 
+  geom_vline(aes(xintercept=mean(Mobile.cellular.subscriptions..per.100.inhabitants..1)),
+            color="black", linetype="dashed", size=1) +
+  ggtitle("Mobile subscriptions") + xlab("Subs per 100 inhabitants") + ylab("Density")
+
+density_urban <- ggplot(dataset, aes(x=Urban.population....of.total.population._x)) + 
+  geom_histogram(aes(y=..density..), color="black", fill="white", bins=8) + 
+  geom_density(alpha=.2, fill="lightblue") + 
+  geom_vline(aes(xintercept=mean(Urban.population....of.total.population._x)),
+            color="black", linetype="dashed", size=1) +
+  ggtitle("Urban population %") + xlab("Urban population % of total") + ylab("Density")
+
+density_life_exp <- ggplot(dataset, aes(x=Life.expectancy.at.birth..total..years.)) + 
+  geom_histogram(aes(y=..density..), color="black", fill="white", bins=8) + 
+  geom_density(alpha=.2, fill="lightblue") + 
+  geom_vline(aes(xintercept=mean(Life.expectancy.at.birth..total..years.)),
+            color="black", linetype="dashed", size=1) + 
+  ggtitle("Life expectancy") + xlab("Life expectancy") + ylab("Density")
+
+density_living <- ggplot(dataset, aes(x=Cost.Of.Living.Index)) + 
+  geom_histogram(aes(y=..density..), color="black", fill="white", bins=8) + 
+  geom_density(alpha=.2, fill="lightblue") + 
+  geom_vline(aes(xintercept=mean(Cost.Of.Living.Index)),
+            color="black", linetype="dashed", size=1) + 
+  ggtitle("Cost of living index") + xlab("Cost of living index") + ylab("Density")
+
+density_quality <- ggplot(dataset, aes(x=Quality.Of.Life.Index)) + 
+  geom_histogram(aes(y=..density..), color="black", fill="white", bins=8) + 
+  geom_density(alpha=.2, fill="lightblue")  + 
+  geom_vline(aes(xintercept=mean(Quality.Of.Life.Index)),
+            color="black", linetype="dashed", size=1) +
+  ggtitle("Quality of life") + xlab("Quality of life index") + ylab("Density")
+  
+grid.arrange(density_safety,
+             density_health, 
+             density_pollution, 
+             density_purchasing_power,
+             density_living,
+             density_quality,
+             density_mobile,
+             density_urban,
+             density_life_exp,
+             ncol = 3)  
+
+```
+
+As it can be seen from the graphs, most of the features are not normally distributed. That, along with the fact that there are only 66 countries, makes some statistical hypotheses and conclusions more difficult - or as we see it, more challenging. 
+
+```{r, echo=FALSE}
+#FUNCTION FOR REGULAR R GRAPHING
+#graph_histogram <- function(x){
+# par(mfrow=c(1,2))
+#  hist(x, main='Pre log',xlab='Value',ylab='Frequency', col="lightsteelblue", border="white")
+#  abline(v=mean(x),col="darkgrey", lty = 2)
+
+#  hist(log(x), main='Post log',xlab='Value',ylab='Frequency', col="lightsteelblue", border="white")
+#  abline(v=mean(log(x)),col="darkgrey", lty = 2)
+#}
+
+
+#example of using this function
+#graph_histogram(dataset$International.trade..Exports..million.US..)
+
+```
+
+\newpage
+Since we also want to focus on the factors which are somewhat correlated to the GDP throughout our further analysis, we want to check out some candidate variables and their properties. 
+Here we can see the box plot showing contribution to GVA and employment percentage by each sector of economy.
+
+```{r, echo=FALSE}
+
+dataset$Economy..Agriculture....of.GVA. = as.numeric(dataset$Economy..Agriculture....of.GVA.)
+
+box_sectors_by_GVA_contribution <- ggplot(stack(dataset[c(11:13)]), aes(x = ind, y = values, fill=ind)) +  geom_boxplot() + 
+  ggtitle("Percentage of GVA") + xlab("Economic sector") + ylab("Percentage of GVA") +  
+  theme(legend.position="none") + scale_x_discrete(guide = guide_axis(n.dodge=3)) 
+
+box_sectors_by_employment <- ggplot(stack(dataset[c(14:16)]), aes(x = ind, y = values, fill=ind)) + geom_boxplot() + 
+  ggtitle("Percentage of empolyment") + xlab("Economic sector") + ylab("Percentage of employment") + 
+  theme(legend.position="none") +  scale_x_discrete(guide = guide_axis(n.dodge=3))
+
+grid.arrange(box_sectors_by_GVA_contribution, box_sectors_by_employment, ncol = 2)  
+```
+A few interesting notes can be taken from this. Although the agriculture contribution to the GVA is quite small, there seem to be more more people working in the sector than one might expect. Industry seems to have a bigger influence on the GVA considering how many people are working in the field. This can naturally be attributed to the fact that there are factory machines doing the work. We can also see that the employment in the services sector varies the most out of the three sectors.
+
+\newpage
+
+### Significant outliers
+
+Interesting part of the initial exploration is finding outlier values. 
+For example, the US is an outlier in all air transport, far surpassing the competition as seen on the following graph:
+
+
+```{r, echo=FALSE}
+
+#cat("Freight million ton-km \n")
+#summary(dataset.with.dummies.with.qatar$Air.transport..freight..million.ton.km.)
+#cat("\nPassengers carried")
+#summary(dataset.with.dummies.with.qatar$Air.transport..passengers.carried)
+par(mfrow=c(1,2))
+plot(dataset$X, 
+     dataset$Air.transport..freight..million.ton.km., 
+     col= continents$Colour,
+     xlab="Countries", ylab="Air transport, freight")
+plot(dataset$X,
+     dataset$Air.transport..passengers.carried, 
+     col= continents$Colour,
+     xlab="Countries", ylab="Air transport, passengers carried")
+```
+
+Qatar is also an outlier worth of mentioning, but it will be later discussed throughout the paper.
+
+\newpage
+
+We took the next step and automatized the process of finding the outliers in order to see which countries have the most outliers across all parameters.
+```{r, include=FALSE}
+#check if a nation (row number) is an outlier in a provided feature
+checkNationOutlierInFeature <- function(nation_row_number, feature) {
+  outliers = findOutliers(dataset[[feature]], FALSE)
+  if(is.null(outliers) || !(nation_row_number %in% c(outliers))) {
+    return(FALSE)
+  }
+  return(TRUE)
+}
+```
+
+```{r, include=FALSE}
+checkNationOutlierInFeature(9, "Surface.area..km2.")
+```
+
+```{r, include=FALSE}
+#find in which features a certain nation is an outlier (don't look at features such as country, region etc.)
+findAllOutlierFeaturesOfANation <- function(row_number) {
+  all_features <- colnames(dataset)
+  all_features <- all_features[!all_features %in% c("X", "country", "Region", "Energy.supply.per.capita..Gigajoules.")]
+  outlier_features = NULL
+  for(feature in all_features) {
+    if(checkNationOutlierInFeature(row_number, feature) == TRUE) {
+      if(is.null(outlier_features)) {
+        outlier_features <- c(as.character(feature))
+      } else {
+        outlier_features <- append(outlier_features, as.character(feature))
+      }
+    }
+  }
+  if(length(outlier_features) == 0) {
+    cat(as.character(dataset[row_number, "country"]), " isn't outlier in any features.\n")
+  } else {
+    cat(as.character(dataset[row_number, "country"]), " is outlier in features: ")
+    for (i in 1:length(outlier_features)) {
+      cat(outlier_features[i])
+      if (i != length(outlier_features)) {
+        cat(", ")
+      } else {
+        cat("\n")
+      }
+    }
+  } 
+  
+  return(length(outlier_features))
+}
+
+```
+
+```{r, echo=FALSE, results=FALSE}
+num_of_outlier_features <- vector(mode="integer")
+
+for (i in 1:length(row.names(dataset))) {
+  num_of_outlier_features[i] <- findAllOutlierFeaturesOfANation(i)
+  cat("\n")
+}
+
+dataset$Number.of.Outlier.Features <- num_of_outlier_features
+
+```
+
+```{r, echo=FALSE}
+ggplot(dataset, aes(reorder(country,
+             Number.of.Outlier.Features),
+             Number.of.Outlier.Features)) +
+  geom_col() + 
+  labs(title="Number of outlier features by countries", x="Country", y="Number of outlier features") + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+We can see that the USA has outlier values in most categories out of given countries. One can also notice that Croatia does not have outlier values in any of the given features. Despite that, in the rest of the document it will be colored red in order to see how it is ranks in comparison to other countries.
+
+\newpage
+# TESTING HYPOTHESIS
+In this section we will test different assumptions using the t-test.\newline
+In our t.test function we check the distribution of the data by drawing graphs and we also check whether the variances are equal to be able to conduct the internal R supplied t.test. When making a decision we look at the p-value. If the p-value of the t-test is smaller than confidence interval we can reject the null hypothesis in favor of the alternative hypothesis and if the p-value is bigger we cannot reject null hypothesis.\newline
+Lets analyze Europe compared to other world countries while focusing on current world issues.
+```{r, include=FALSE}
+#tryout
+#population growth
+plot(dataset.with.dummies.with.qatar$X, dataset.with.dummies.with.qatar$Population.growth.rate..average.annual..., col = continents$Colour,)
+
+boxplot(rest_of_the_world$Population.growth.rate..average.annual...,europe$Population.growth.rate..average.annual...,names=c("Rest of the world population growth", "Europe population growth"), main="Distribution of population growth")
+
+#-provjera normalnosti
+hist(rest_of_the_world$Population.growth.rate..average.annual...)
+hist(europe$Population.growth.rate..average.annual...)
+qqnorm(rest_of_the_world$Population.growth.rate..average.annual...)
+qqline(rest_of_the_world$Population.growth.rate..average.annual..., lwd =2)
+qqnorm(europe$Population.growth.rate..average.annual...)
+qqline(europe$Population.growth.rate..average.annual..., lwd=2)
+#--normalno su distribuirane (diskutiraj rest of the world)
+
+summary(rest_of_the_world$Population.growth.rate..average.annual...)
+summary(europe$Population.growth.rate..average.annual...)
+#-provjera varijanci
+var(rest_of_the_world$Population.growth.rate..average.annual...)
+var(europe$Population.growth.rate..average.annual...)
+#--varijance nisu jednake
+
+#-t test
+t.test(rest_of_the_world$Population.growth.rate..average.annual...,europe$Population.growth.rate..average.annual..., alt = "greater", var.equal = FALSE)
+#--p vrijednost jako mala -> odbacujemo null hipotezu te prihvcamo nasu pretpostavku
+
+
+
+```
+
+```{r, include=FALSE}
+#dataset[!dataset$country %in% europe$country, ]
+myTtest <- function(data1, data2, talt, tpaired){
+  outliers1<- findOutliers(data1, FALSE)
+  outliers2<- findOutliers(data2, FALSE)
+  newEuropeColours <- europe
+  if (!is.null(outliers1)) {
+    data1 <- data1[-c(outliers1)]
+  }
+  if (!is.null(outliers2)){
+    data2 <- data2[-c(outliers2)]
+    newEuropeColours <- europe[-c(outliers2),]
+  }
+  par(mfrow=c(2,4))
+  #-provjera normalnosti
+  hist(data1, main="Rest of the world", xlab="Rest of the world")
+  qqnorm(data1, main="Rest of the world")
+  qqline(data1, lwd =2)
+  hist(data2, main="Europe", xlab="Europe")
+  qqnorm(data2, col=newEuropeColours$Colour,  main="Europe")
+  qqline(data2, lwd=2)
+  boxplot(data1,data2,names=c("Rest of the world", "Europe"), main="Distribution",cex.axis=0.7 )
+
+  #-provjera varijanci
+  vrijednost <- var(data1)/var(data2)
+  if (!is.na(vrijednost) & vrijednost == 1) {
+    vrijednost <- TRUE
+  }
+  else{
+    vrijednost <- FALSE
+  }
+  
+  #-t test
+  t.test(data2,data1, alt = talt, var.equal = vrijednost, paired = tpaired)
+}
+```
+
+## Climate change
+```{r, include=FALSE}
+#climate
+myTtest(rest_of_the_world$Climate.index,europe$Climate.index, "greater", FALSE)
+#I DONT KNOW
+#p vrijednost jako mala -> odbacujemo null hipotezu te prihvcamo nasu pretpostavku
+#1. rest of the world not quite normaly distributed
+#2. p value not that small
+```
+### Assumption: Pollution in Europe is lower than in the rest of the world.
+```{r}
+myTtest(rest_of_the_world$Pollution.index,europe$Pollution.index, "less", FALSE)
+
+```
+Based on the p-value we can reject the null hypothesis in favor of the alternative hypothesis meaning that the pollution in Europe is lower than that in the rest of the world.
+
+```{r, include=FALSE}
+myTtest(rest_of_the_world$Quality.Of.Life.Index,europe$Quality.Of.Life.Index, "greater", FALSE)
+
+```
+
+### Assumption: Population growth in Europe is lower than in other countries.
+```{r}
+myTtest(rest_of_the_world$Population.growth.rate..average.annual...,europe$Population.growth.rate..average.annual...,"less", FALSE)
+```
+Based on the p-value we can reject the null hypothesis in favor of the alternative hypothesis meaning that the population growth in Europe is slower than that in the rest of the world.
+\newpage
+
+### Assumption: Based on the fact that the pollution in Europe is lower than in the rest of the world we are making an asumption that the amount of people working in Agriculture sector is much higher than in the Industry sector.
+```{r, include=FALSE}
+data1 <-europe$Employment..Industry....of.employed.
+data2<-europe$Employment..Agriculture....of.employed.
+outliers1<- findOutliers(data1, FALSE)
+  outliers2<- findOutliers(data2, FALSE)
+  newEuropeColours <- europe
+  if (!is.null(outliers1)) {
+    data1 <- data1[-c(outliers1)]
+  }
+  if (!is.null(outliers2)){
+    data2 <- data2[-c(outliers2)]
+    newEuropeColours <- europe[-c(outliers2),]
+  }
+  #normality check
+```
+
+
+```{r, echo=FALSE}
+par(mfrow=c(2,4))
+hist(data1, main="Industry sector", xlab="Industry sector")
+  qqnorm(data1, main="Industry sector")
+  qqline(data1, lwd =2)
+  hist(data2, main="Agriculture sector", xlab="Agriculture sector")
+  qqnorm(data2, col=newEuropeColours$Colour,  main="Agriculture sector")
+  qqline(data2, lwd=2)
+  boxplot(data1,data2,names=c("Industry sector", "Agriculture sector"), main="Distribution")
+t.test(europe$Employment..Agriculture....of.employed.,europe$Employment..Industry....of.employed., alt = "less", var.equal = FALSE, paired = TRUE, conf.level = 0.9)
+```
+Based on the p-value we can reject the null hypothesis meaning that the amount of people working in Industry sector in Europe is higher than in Agriculture.
+\newpage
+
+## Corona virus
+
+### Assumption: Health expenses in Europe are greater than in the rest of the world.
+```{r}
+myTtest(log(rest_of_the_world$Health..Total.expenditure....of.GDP.),log(europe$Health..Total.expenditure....of.GDP.),"greater", FALSE)
+```
+Based on the p-value we can reject the null hypothesis meaning that health expanses in Europe are higher than that in the rest of the world.
+\newpage
+
+### Assumption: There are more older people in Europe than in the rest of the world.
+```{r}
+myTtest(log(rest_of_the_world$Population.age.distribution.60.years....),log(europe$Population.age.distribution.60.years....),"greater", FALSE)
+```
+Based on the p-value we can reject the null hypothesis in favor of the alternative hypothesis meaning that there are more older people in Europe than in the rest of the world.
+\newpage
+
+## Gender equality
+
+### Assumption: There are more women in parliament in Europe than in the rest of the world.
+```{r}
+myTtest(sqrt(rest_of_the_world$Seats.held.by.women.in.national.parliaments..),sqrt(europe$Seats.held.by.women.in.national.parliaments..),"greater", FALSE)
+
+```
+Based on the p-value we can reject the null hypothesis in favor of the alternative hypothesis meaning that there are more women in parliaments in Europe than in the rest of the world.
+\newpage
+
+### Assumption: There are more women going to college in Europe than in the rest of the world.
+```{r}
+myTtest(rest_of_the_world$Education..Tertiary.gross.enrol..ratio..f.per.100.pop..,europe$Education..Tertiary.gross.enrol..ratio..f.per.100.pop..,"greater", FALSE)
+```
+Based on the p-value we can reject the null hypothesis in favor of the alternative hypothesis meaning that there are more women in parliaments in Europe than in the rest of the world.
+\newpage
+
+### Assumption: There is no difference in the number of girls compared to the number of boys going to school.
+```{r, include=FALSE}
+data1 <-europe$Education..Primary.gross.enrol..ratio..m.per.100.pop..
+data2<-europe$Education..Primary.gross.enrol..ratio..f.per.100.pop..
+outliers1<- findOutliers(data1, FALSE)
+  outliers2<- findOutliers(data2, FALSE)
+  newEuropeColours <- europe
+  if (!is.null(outliers1)) {
+    data1 <- data1[-c(outliers1)]
+  }
+  if (!is.null(outliers2)){
+    data2 <- data2[-c(outliers2)]
+    newEuropeColours <- europe[-c(outliers2),]
+  }
+  #normality check
+```
+
+
+```{r, echo=FALSE}
+par(mfrow=c(2,4))
+hist(data1, main="Boys in school", xlab="Boys in school")
+  qqnorm(data1, main="Boys in school")
+  qqline(data1, lwd =2)
+  hist(data2, main="Girls in school", xlab="Girls in school")
+  qqnorm(data2, col=newEuropeColours$Colour,  main="Girls in school")
+  qqline(data2, lwd=2)
+  boxplot(data2,data1,names=c("Boys in school in Europe", "Girls in school in Europe"), main="Distribution")
+t.test(data1,data2, alt = "greater", var.equal = FALSE, paired = TRUE )
+```
+Based on the p-value we cannot reject the null hypothesis in favor of the alternative hypothesis meaning that there is no difference of boys and girls going to school in Europe.
+
+```{r, include=FALSE}
+myAnovaLogTest <- function(data, labelX){
+  #provjera normalnosti
+  print("Testing normality:")
+  #print(lillie.test(log(data)))
+  
+  print(lillie.test(log(data[europe$Region=="WesternEurope"])))
+  print(lillie.test(log(data[europe$Region=="EasternEurope"])))
+  print(lillie.test(log(data[europe$Region=="NorthernEurope"])))
+  print(lillie.test(log(data[europe$Region=="SouthernEurope"])))
+
+  par(mfrow=c(2,2))
+  # hist(log(europe$GDP.per.capita..current.US..), main = "Europe - GDP per capita")
+  hist(log(data[europe$Region=="WesternEurope"]), main = "Western Europe", xlab=labelX)
+  hist(log(data[europe$Region=="EasternEurope"]), main = "Eastern Europe", xlab=labelX)
+  hist(log(data[europe$Region=="NorthernEurope"]), main = "Northern Europe", xlab=labelX)
+  hist(log(data[europe$Region=="SouthernEurope"]), main = "Southern Europe", xlab=labelX)
+  
+  print("Testing variance homogeneity:")
+  temp1 <- bartlett.test(log(data) ~ europe$Region)
+  print(temp1)
+
+  print(var(log(data[europe$Region=="WesternEurope"])))
+  print(var(log(data[europe$Region=="EasternEurope"])))
+  print(var(log(data[europe$Region=="NorthernEurope"])))
+  print(var(log(data[europe$Region=="SouthernEurope"])))
+  
+  par(mfrow=c(1,1))
+  boxplot(log(data) ~ europe$Region, xlab = "European regions", ylab = labelX, cex.axis=0.75)
+  
+  message("ANOVA:")
+  a= aov((log(data) ~ europe$Region))
+  summary(a)
+}
+
+myAnovaTest <- function(data, labelX){
+  #provjera normalnosti
+  print("Testing normality:")
+  #print(lillie.test(log(data)))
+  
+  print(lillie.test((data[europe$Region=="WesternEurope"])))
+  print(lillie.test((data[europe$Region=="EasternEurope"])))
+  print(lillie.test((data[europe$Region=="NorthernEurope"])))
+  print(lillie.test((data[europe$Region=="SouthernEurope"])))
+
+  par(mfrow=c(2,2))
+  # hist(log(europe$GDP.per.capita..current.US..), main = "Europe - GDP per capita")
+  hist((data[europe$Region=="WesternEurope"]), main = "Western Europe", xlab=labelX)
+  hist((data[europe$Region=="EasternEurope"]), main = "Eastern Europe", xlab=labelX)
+  hist((data[europe$Region=="NorthernEurope"]), main = "Northern Europe", xlab=labelX)
+  hist((data[europe$Region=="SouthernEurope"]), main = "Southern Europe", xlab=labelX)
+  
+  print("Testing variance homogeneity:")
+  temp1 <- bartlett.test((data) ~ europe$Region)
+  print(temp1)
+
+  print(var((data[europe$Region=="WesternEurope"])))
+  print(var((data[europe$Region=="EasternEurope"])))
+  print(var((data[europe$Region=="NorthernEurope"])))
+  print(var((data[europe$Region=="SouthernEurope"])))
+  
+  par(mfrow=c(1,1))
+  boxplot((data) ~ europe$Region, xlab = "European regions", ylab = labelX, cex.axis=0.75)
+  
+  message("ANOVA:")
+  a= aov(((data) ~ europe$Region))
+  summary(a)
+}
+```
+
+\newpage
+
+# ANOVA
+
+After comparing Europe to the rest of the world we decided to test similar assumptions between European regions.
+
+## Quick introduction
+
+ANOVA is a method for analysing differences between group means in a sample. We presume that the total variance is caused by variability inside each group(result of coincidence) as well as variability between the groups. The latter being the result of differences between group means. Our goal is to determine whether those differences between groups are statistically significant.
+
+For ANOVA to work the following assumptions must be met:
+*   independence between data in samples
+*   normal distribution of data
+*   variance homogeneity between samples
+
+Our goal is to use ANOVA to test whether all European regions have the same GDP per capita mean.
+First we correct the Region from character to factor and continue to test assumptions above.
+Independence is implied because these are all separate countries.
+
+```{r}
+europe$Region <- as.factor(europe$Region)
+```
+
+## Testing mean assumptions
+
+### Assumption: GDP per capita mean is the same across all European regions
+```{r}
+myAnovaLogTest(europe$GDP.per.capita..current.US..,"log(GDP per capita)")
+```
+
+
+All tests, except normality for Western and Northern Europe, are favourable.
+Our groups are of similar size and knowing that ANOVA is robust with respect to normality for similarly sized groups we proceeded.
+
+ANOVA showed that the means of GDP per capita for regions are not the same. The same can be seen from the boxplot.
+
+### Assumption: Industry makes up the same amount of economy across all European regions
+```{r}
+myAnovaTest(europe$Economy..Industry....of.GVA., "Industry in economy")
+```
+All tests are favourable for ANOVA assumptions and we can proceed
+
+From the box plot, other than Eastern Europe, all regions appear to have similar means and with ANOVA using 1% significance we cannot reject the assumption that all groups have the same means.
+
+
+### Assumption: Mean of Urban population in total population is the same across all European regions
+```{r}
+myAnovaTest(europe$Urban.population....of.total.population._x, "Urban population in total pop.")
+```
+Tests are favourable, the only one raising suspicion is Lilliefors normality test Eastern European region.
+Our groups are of similar size and knowing that ANOVA is robust with respect to normality for similarly sized groups we proceeded.
+\newline
+From both the box plot and ANOVA we can see rejection of the assumption that all regions have the same part of urban population in total population.
+
+### Assumption: Mean of Quality of life index is the same across all European regions
+```{r}
+myAnovaTest(europe$Quality.Of.Life.Index, "Quality of life index")
+```
+Tests are favourable, the only one raising suspicion is Lilliefors normality test Northern European region.
+Our groups are of similar size and knowing that ANOVA is robust with respect to normality for similarly sized groups we proceeded.
+\newline
+From both the box plot and ANOVA we can see rejection of the assumption that all regions have the same Quality of life index mean.
+
+
+### Assumption: Health expenditure mean is the same across all European regions
+```{r}
+myAnovaTest(europe$Health..Total.expenditure....of.GDP., "Total health expenditure")
+```
+
+Normality tests are favourable, but the variances do not seem to be homogeneous.
+Our groups are of similar size and knowing that ANOVA is robust with respect to variance homogeneity for similarly sized groups we proceeded.
+\newline
+From both the box plot and ANOVA we can see rejection of the assumption that all regions have the same Health expenditure mean.
+
+\newpage
+
+# LINEAR REGRESSION
+
+Linear regression is a method of modelling the relationship between a scalar response and one or more variables (regressors). 
+
+It is mostly used for predicting a value of a variable by using values of some different variable(s).
+Training is done on a train dataset and testing (predicting) on a never before seen data.
+
+## Predicting GDP per capita with employments per sectors
+
+Let's first visualize the data we're working with.
+
+```{r, include=FALSE}
+without_qatar = dataset[-c(44),]
+```
+
+
+```{r, include=FALSE}
+employment_agriculture = dataset$Employment..Agriculture....of.employed.
+employment_services = dataset$Employment..Services....of.employed.
+employment_industry = dataset$Employment..Industry....of.employed.
+gdp_per_capita = dataset$GDP.per.capita..current.US..
+
+employment_agriculture_without_qatar = without_qatar$Employment..Agriculture....of.employed.
+employment_services_without_qatar = without_qatar$Employment..Services....of.employed.
+employment_industry_without_qatar = without_qatar$Employment..Industry....of.employed.
+gdp_per_capita_without_qatar = without_qatar$GDP.per.capita..current.US..
+```
+
+
+```{r, include=FALSE}
+plot(employment_agriculture, gdp_per_capita, xlab = "Employment in agriculture", ylab = "GDP per capita", main = "Without log transformation on GDP per capita", col= colorData$Color)
+
+# with log transformation
+plot(employment_agriculture, log(gdp_per_capita), xlab = "Employment in agriculture", ylab = "log(GDP per capita)", main = "With log transformation on GDP per capita", col = colorData$Color)
+```
+
+```{r, include=FALSE}
+plot(employment_services, gdp_per_capita, xlab = "Employment in services", ylab = "GDP per capita", main = "Without log transformation on GDP per capita", col= colorData$Color)
+
+# with log transformation
+plot(employment_services, log(gdp_per_capita), xlab = "Employment in services", ylab = "log(GDP per capita)", main = "With log transformation on GDP per capita", col =colorData$Color)
+```
+
+```{r, include=FALSE}
+#using colours for showcasing different countries using plot
+newData <- read.csv(file='macro_data.csv', sep = ',')
+newData$Color = "black"
+newData$Color[dataset$country == "Croatia"]="red"
+
+gdpOutliers <- findOutliers(gdp_per_capita, TRUE)
+employmentOutliers <- findOutliers(employment_industry, TRUE)
+goutliers <- c(gdpOutliers,employmentOutliers)
+
+newData$country[goutliers]
+if(!is.null(goutliers)) {
+  newData$Color[goutliers] = "green"
+}
+
+plot(employment_industry, gdp_per_capita, xlab = "Employment in industry", ylab = "GDP per capita", main="GDP per capita vs employment in industry",col=newData$Color)
+```
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+no.log.industry = ggplot(newData, aes(x=Employment..Industry....of.employed., y=GDP.per.capita..current.US..)) + geom_point() + geom_smooth(method=lm) + labs(title = "With Qatar, no log transform", y="GDP per capita", x="Employment in industry")
+
+log.industry = ggplot(newData, aes(x=Employment..Industry....of.employed., y=log(gdp_per_capita))) + geom_point() + geom_smooth(method=lm) + labs(title = "With Qatar, log transform", y="GDP per capita", x="Employment in industry")
+
+no.qatar.no.log.industry = ggplot(newData[-c(44),], aes(x=Employment..Industry....of.employed., y=GDP.per.capita..current.US..)) + geom_point() + geom_smooth(method=lm) + labs(title = "W/O Qatar, no log transform", y="GDP per capita", x="Employment in industry")
+
+no.qatar.log.industry = ggplot(newData[-c(44),], aes(x=Employment..Industry....of.employed., y=log(gdp_per_capita_without_qatar))) + geom_point() + geom_smooth(method=lm) + labs(title = "W/O Qatar, log transform", y="GDP per capita", x="Employment in industry")
+
+no.log.agriculture = ggplot(newData, aes(x=Employment..Agriculture....of.employed., y=GDP.per.capita..current.US..)) + geom_point() + geom_smooth(method=lm) + labs(title = "No log transform", y="GDP per capita", x="Employment in agriculture")
+
+log.agriculture = ggplot(newData, aes(x=Employment..Agriculture....of.employed., y=log(gdp_per_capita))) + geom_point() + geom_smooth(method=lm) + labs(title = "Log transform", y="GDP per capita", x="Employment in agriculture")
+
+no.log.services = ggplot(newData, aes(x=Employment..Services....of.employed., y=GDP.per.capita..current.US..)) + geom_point() + geom_smooth(method=lm) + labs(title = "With Qatar, no log transform", y="GDP per capita", x="Employment in services")
+
+log.services = ggplot(newData, aes(x=Employment..Services....of.employed., y=log(gdp_per_capita))) + geom_point() + geom_smooth(method=lm) + labs(title = "With Qatar, log transform", y="GDP per capita", x="Employment in services")
+
+no.qatar.no.log.services = ggplot(newData[-c(44),], aes(x=Employment..Services....of.employed., y=GDP.per.capita..current.US..)) + geom_point() + geom_smooth(method=lm) + labs(title = "W/O Qatar, no log transform", y="GDP per capita", x="Employment in services")
+
+no.qatar.log.services = ggplot(newData[-c(44),], aes(x=Employment..Services....of.employed., y=log(gdp_per_capita_without_qatar))) + geom_point() + geom_smooth(method=lm) + labs(title = "W/O Qatar, log transform", y="GDP per capita", x="Employment in services")
+
+grid.arrange(no.log.industry, log.industry, no.qatar.no.log.industry, no.qatar.log.industry, ncol=2)
+
+grid.arrange(no.log.services, log.services, no.qatar.no.log.services, no.qatar.log.services, ncol=2)
+
+grid.arrange(no.log.agriculture, log.agriculture, ncol=2)
+```
+
+Qatar is a huge outlier so we decided to remove it and proceed without it.
+
+```{r, include=FALSE}
+#using colours for showcasing different countries using ggplot with an appropriate legend
+graf <- ggplot(data=newData, aes(x =employment_industry, y=gdp_per_capita, color=Color )) + geom_point()
+graf + labs(title = "Without log transformation, with Qatar", x = "Employment in industry", y = "GDP per capita", color = "Legend\n")  + scale_color_manual(labels = c("other",as.character(newData[goutliers, "country"]), "Hrvatska"), values = c("black" , "green", "red"))
+```
+```{r, include=FALSE}
+#using colours for showcasing different countries using ggplot with an appropriate legend
+graf <- ggplot(data=newData, aes(x =employment_industry, y=log(gdp_per_capita), color=Color )) + geom_point()
+graf + labs(title = "With log transformation, with Qatar", x = "Employment in industry", y = "GDP per capita", color = "Legend\n")  + scale_color_manual(labels = c("other",as.character(newData[goutliers, "country"]), "Hrvatska"), values = c("black" , "green", "red"))
+```
+
+
+
+```{r, echo=FALSE}
+lm_GDP_agriculture = lm(log(gdp_per_capita) ~ employment_agriculture)
+lm_GDP_services = lm(log(gdp_per_capita) ~ employment_services)
+lm_GDP_industry = lm(log(gdp_per_capita) ~ employment_industry)
+
+lm_GDP_agriculture_without_qatar = lm(log(gdp_per_capita_without_qatar) ~ employment_agriculture_without_qatar)
+lm_GDP_services_without_qatar = lm(log(gdp_per_capita_without_qatar) ~ employment_services_without_qatar)
+lm_GDP_industry_without_qatar = lm(log(gdp_per_capita_without_qatar) ~ employment_industry_without_qatar)
+```
+
+
+```{r, include=FALSE}
+#using colours for showcasing specific countries in a plot with more outliers
+gdpOutliers <- findOutliers(gdp_per_capita, TRUE)
+employmentOutliers <- findOutliers(employment_agriculture, TRUE)
+goutliers <- c(gdpOutliers,employmentOutliers)
+
+if(!is.null(goutliers)) {
+  newData$Color[goutliers] = "green"
+}
+legendLabels <- as.character( "outliers:")
+legendValues <- c("black","green","red")
+for (outlier in goutliers){
+  legendLabels<- cat(legendLabels, as.character( newData$country[outlier]))
+}
+graf <- ggplot(data=newData, aes(x =employment_agriculture, y=log(gdp_per_capita), color=Color ))+geom_point()
+graf +labs(title = "Linear regression with log transformation on GDP per capita", x = "Employment in agriculture", y = "log(GDP per capita)", color = "Legend\n")  + scale_color_manual(labels = c("other","outliers","Hrvatska"), values = legendValues)
+```
+
+```{r, include=FALSE}
+plot(employment_agriculture, log(gdp_per_capita), xlab = "Employment in agriculture", ylab = "log(GDP per capita)", main = "Linear regression with log transformation on GDP per capita",col =colorData$Color) #graficki prikaz podataka
+lines(employment_agriculture,lm_GDP_agriculture$fitted.values,col='red') #graficki prikaz procijenjenih vrijednosti iz modela
+```
+```{r, include=FALSE}
+plot(employment_services, log(gdp_per_capita), xlab = "Employment in services", ylab = "log(GDP per capita)", main = "Linear regression with log transformation on GDP per capita",col =colorData$Color) #graficki prikaz podataka
+lines(employment_services,lm_GDP_services$fitted.values,col='red') #graficki prikaz procijenjenih vrijednosti iz modela
+```
+
+
+```{r, include=FALSE}
+plot(employment_industry, log(gdp_per_capita), xlab = "Employment in industry", ylab = "GDP per capita", main = "Linear regression with log transformation on GDP per capita, with Qatar",col =colorData$Color) #graficki prikaz podataka
+lines(employment_industry,lm_GDP_industry$fitted.values,col='red') #graficki prikaz procijenjenih vrijednosti iz modela
+```
+
+```{r, include=FALSE}
+plot(employment_industry_without_qatar, log(gdp_per_capita_without_qatar), xlab = "Employment in industry", ylab = "GDP per capita", main = "Linear regression with log transformation on GDP per capita, without Qatar",col =colorData$Color) #graficki prikaz podataka
+lines(employment_industry_without_qatar,lm_GDP_industry_without_qatar$fitted.values,col='red') #graficki prikaz procijenjenih vrijednosti iz modela
+```
+
+We need to check if model hypotheses are (too) violated. The most importants things here are hypotheses about regressors (in multivariate regression, regressors shouldn't be mutually correlated) and about residuals (residual normality and homogeneity of variance).
+
+Residual normality can be tested graphically, with Q-Q plot (comparing it to normal distribution line), and statistically with Kolmogorov Smirnov test.
+
+```{r}
+gdp.vs.agriculture = lm_GDP_agriculture_without_qatar
+
+par(mfrow=c(2,3))
+
+plot(gdp.vs.agriculture$residuals, ylab = "Residual",col =colorData$Color)
+
+hist((gdp.vs.agriculture$residuals), main = "GDP-agriculture residuals", xlab = "Residual")
+hist(rstandard(gdp.vs.agriculture), main = "GDP-agriculture rstandard", xlab = "rstandard")
+
+qqnorm(rstandard(gdp.vs.agriculture))
+qqline(rstandard(gdp.vs.agriculture))
+
+plot(gdp.vs.agriculture$fitted.values, gdp.vs.agriculture$residuals, xlab = "Fitted values", ylab = "Residuals",col =colorData$Color)
+ks.test(rstandard(gdp.vs.agriculture),'pnorm')
+
+lillie.test(rstandard(gdp.vs.agriculture))
+
+```
+
+We can conclude that model hypotheses about residual normality and homogeneity of variance aren't too violated of estimating **GDP per capita** with **employment in agriculture**.
+
+```{r}
+
+gdp.vs.services = lm_GDP_services_without_qatar
+
+par(mfrow=c(2,3))
+
+plot(gdp.vs.services$residuals, ylab = "Residual",col =colorData$Color)
+
+hist((gdp.vs.services$residuals), main = "GDP-services", xlab = "Residual")
+hist(rstandard(gdp.vs.services), main = "GDP-services", xlab = "rstandard")
+
+qqnorm(rstandard(gdp.vs.services))
+qqline(rstandard(gdp.vs.services))
+
+plot(gdp.vs.services$fitted.values, gdp.vs.services$residuals, xlab = "Fitted values", ylab = "Residuals",col =colorData$Color)
+
+ks.test(rstandard(gdp.vs.services),'pnorm')
+
+lillie.test(rstandard(gdp.vs.services))
+
+```
+
+We can conclude that model hypotheses about residual normality and homogeneity of variance aren't too violated for this simple linear regression model of estimating **GDP per capita** with **employment in services**.
+
+```{r}
+
+gdp.vs.industry = lm_GDP_industry_without_qatar
+
+par(mfrow=c(2,3))
+
+plot(gdp.vs.industry$residuals, ylab = "Residual",col =colorData$Color)
+
+hist((gdp.vs.industry$residuals), main = "GDP-industry", xlab = "Residual")
+hist(rstandard(gdp.vs.industry), main = "GDP-industry", xlab = "rstandard")
+
+qqnorm(rstandard(gdp.vs.industry))
+qqline(rstandard(gdp.vs.industry))
+
+plot(gdp.vs.industry$fitted.values, gdp.vs.industry$residuals, xlab = "Fitted values", ylab = "Residuals",col =colorData$Color)
+
+ks.test(rstandard(gdp.vs.industry),'pnorm')
+
+lillie.test(rstandard(gdp.vs.industry))
+
+```
+
+Here, the situation is a little bit worse but we can still conclude that model hypotheses about residual normality and homogeneity of variance aren't **too** violated for this simple linear regression model of estimating **GDP per capita** with **employment in industry**. However, we should be careful with it.
+
+```{r simple regression model analysis}
+
+summary(lm_GDP_agriculture_without_qatar)
+
+summary(lm_GDP_services_without_qatar)
+
+summary(lm_GDP_industry_without_qatar)
+
+
+```
+
+We can see that the model in which we use **employment in industry** to estimate **GDP per capita** performs much worse. That is also because model hypotheses in this model weren't really completely satisfied.
+```{r coefficient of correlation, echo=FALSE}
+
+cat("Correlation of GDP per capita and employment in agriculture: ", cor(employment_agriculture_without_qatar, gdp_per_capita_without_qatar), "\n")
+
+cat("Correlation of GDP per capita and employment in services: ", cor(employment_services_without_qatar, gdp_per_capita_without_qatar), "\n")
+
+cat("Correlation of GDP per capita and employment in industry: ", cor(employment_industry_without_qatar, gdp_per_capita_without_qatar), "\n")
+
+
+```
+We can see that correlation between GDP per capita and employment in industry is somewhat lower than when comparing to employment in agriculture or services.
+```{r, echo=FALSE}
+cat("Correlation of employment in agriculture and industry: ", cor(employment_agriculture_without_qatar, employment_industry_without_qatar), "\n")
+
+cat("Correlation of employment in agriculture and services: ", cor(employment_agriculture_without_qatar, employment_services_without_qatar), "\n")
+
+cat("Correlation of employment in services and industry: ", cor(employment_services_without_qatar, employment_industry_without_qatar), "\n")
+```
+We can see that it would make no sence to include both employment in **agriculture** and **services** because they're highly correlated.
+```{r multivariable regression without services}
+#without services
+fit.multi.v1 = lm(log(gdp_per_capita_without_qatar) ~ employment_agriculture_without_qatar + employment_industry_without_qatar)
+summary(fit.multi.v1)
+
+```
+```{r multivariable regression with services}
+#with services
+fit.multi.v2 = lm(log(gdp_per_capita_without_qatar) ~ employment_agriculture_without_qatar + employment_services_without_qatar + employment_industry_without_qatar)
+summary(fit.multi.v2)
+
+```
+
+We can see that adding a feature which represents percent of employed in service does not contribute to a model and it reduces its Adjusted $R^2$. What's more, that feature has no sense since, if we know percent of people employed in agriculture and industry, than what's left until 100% is filled with percent of people employed in services. And along with all of that, it's very correlated with one of the regressors used, as stated above.
+
+Now we'll split Region feature into separate dummy variables (we'll omit that chunk of code).
+
+```{r include=FALSE}
+dataset.with.dummies = dummy_cols(without_qatar, select_columns='Region')
+westernEurope = dataset.with.dummies$Region_WesternEurope
+easternEurope = dataset.with.dummies$Region_EasternEurope
+northernEurope = dataset.with.dummies$Region_NorthernEurope
+southernEurope = dataset.with.dummies$Region_SouthernEurope
+
+southAmerica = dataset.with.dummies$Region_SouthAmerica
+centralAmerica = dataset.with.dummies$Region_CentralAmerica
+northernAmerica = dataset.with.dummies$Region_NorthernAmerica
+
+easternAsia = dataset.with.dummies$Region_EasternAsia
+westernAsia = dataset.with.dummies$Region_WesternAsia
+southeasternAsia = dataset.with.dummies$`Region_South-easternAsia`
+southernAsia = dataset.with.dummies$Region_SouthernAsia
+
+southernAfrica = dataset.with.dummies$Region_SouthernAfrica
+northernAfrica = dataset.with.dummies$Region_NorthernAfrica
+
+oceania = dataset.with.dummies$Region_Oceania
+```
+
+```{r multivariable regression with dummies}
+# without northern America
+fit.multi.v3 = lm(log(gdp_per_capita_without_qatar) ~ employment_agriculture_without_qatar + employment_industry_without_qatar + westernEurope + easternEurope + northernEurope + southernEurope + southAmerica + centralAmerica + easternAsia + westernAsia + southeasternAsia + southernAsia + southernAfrica + northernAfrica + oceania)
+summary(fit.multi.v3)
+
+```
+We removed northern America dummy from the model because $N-1$ categorical features are enough to figure out the $N$-th one.
+Adding dummy variables adds great boost to our model, insreasing its $R^2$ and adjusted $R^2$ significantly.
+We are aware that now we have some regressors which are not significant and thus not needed but we will not proceed with removing them in this case for the sake of convenience
+
+\newpage
+
+## Predicting life expectancy
+
+```{r, include=FALSE}
+life_expectancy = dataset$Life.expectancy.at.birth..total..years.
+```
+
+```{r, include=FALSE}
+findCorrelationsWithLifeExpectancy <- function() {
+  for (column in colnames(dataset)) {
+    if(column != "Life.expectancy.at.birth..total..years." &&
+       column != "X" &&
+       column != "country" &&
+       column != "Region" &&
+       column != "Energy.supply.per.capita..Gigajoules.") {
+      
+          result <- cor(x=dataset[, column], y=life_expectancy, use = "na.or.complete")
+          
+          if(!is.na(result) && (result > 0.5 || result < -0.5)) {
+            cat("Correlation between ", column, " and life expectancy at birth is: ", result , "\n")
+          }
+       }
+  }
+}
+```
+
+```{r, include=FALSE}
+findCorrelationsWithLifeExpectancy()
+```
+
+```{r, include=FALSE}
+cor(dataset$Mobile.cellular.subscriptions..per.100.inhabitants..1, dataset$`Population.age.distribution.0-14.years....`)
+cor(dataset$Mobile.cellular.subscriptions..per.100.inhabitants..1, dataset$Fertility.rate..total..live.births.per.woman.)
+cor(dataset$Fertility.rate..total..live.births.per.woman., dataset$Food.production.index..2004.2006.100.)
+cor(dataset$Fertility.rate..total..live.births.per.woman., dataset$Adjusted.net.national.income.per.capita..constant.2010.US.., use = "na.or.complete")
+cor(dataset$Urban.population....of.total.population._x, dataset$Education..Tertiary.gross.enrol..ratio..f.per.100.pop.., use = "na.or.complete")
+cor(dataset$Food.production.index..2004.2006.100., dataset$Adjusted.net.national.income.per.capita..constant.2010.US.., use = "na.or.complete")
+cor(dataset$Food.production.index..2004.2006.100., dataset$Fertility.rate..total..live.births.per.woman.)
+```
+By finding correlation between life expectancy at birth and all the other features in our dataset, we come to mostly intuitive results. It's not a surprise that a higher living standard of a country implicates that a life expectancy at birth will be longer. That's why, from the feature that are highly correlated with life expactancy at birth, we'll try to pick the ones that are more interesting.
+
+For example, **number of mobile cellular subscriptions per 100 inhabitants** is an interesting feature and has positive impact on life expectancy.
+**Food production index** is negatively correlated with life expectancy because those countries have more developed agriculture, produce more food and perform more physical work, thus leading to a shorter life.
+
+Next up, **fertility rate (total live births per woman)** has a significantly negative impact on life expectancy. In general, countries with lower levels of education and lower quality of life index have that rate higher. 
+
+Not very surprisingly, **health care index** has a very positive impact on life expectancy. We'll include it in order to get better results from linear regression.
+What's more, the countries with higher **safety index** tend to have a longer life expectancy. An interetsing result which mostly contributes to a smaller number of violent and non-natural deaths.
+
+And the last feature which we decided to include is the **percentage of urban population**. This is maybe too correlated with **number of mobile cellular subscriptions per 100 habitants**, having Pearson's correlation coefficient of $0.6699935$ but we still decided to include it in the first model. Maybe it will be removed later.
+Some other features such as education seemed really interesting but contained NA values in some examples so we decided to skip those.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+mobile = ggplot(dataset, aes(x=Mobile.cellular.subscriptions..per.100.inhabitants..1, y=Life.expectancy.at.birth..total..years.)) + geom_point() + geom_smooth(method=lm) + labs(y="Life expectancy", x="Mobile subscriptions")
+food = ggplot(dataset, aes(x=Food.production.index..2004.2006.100., y=Life.expectancy.at.birth..total..years.)) + geom_point() + geom_smooth(method=lm) + labs(y="Life expectancy", x="Food production index")
+fertility = ggplot(dataset, aes(x=Fertility.rate..total..live.births.per.woman., y=Life.expectancy.at.birth..total..years.)) + geom_point() + geom_smooth(method=lm) + labs(y="Life expectancy", x="Fertility rate")
+health = ggplot(dataset, aes(x=Health.Care.Index, y=Life.expectancy.at.birth..total..years.)) + geom_point() + geom_smooth(method=lm) + labs(y="Life expectancy", x="Health care index")
+safety = ggplot(dataset, aes(x=Safety.Index, y=Life.expectancy.at.birth..total..years.)) + geom_point() + geom_smooth(method=lm) + labs(y="Life expectancy", x="Safety index")
+urban_pop = ggplot(dataset, aes(x=Urban.population....of.total.population._x, y=Life.expectancy.at.birth..total..years.)) + geom_point() + geom_smooth(method=lm) + labs(y="Life expectancy", x="Urban population")
+grid.arrange(mobile, food, fertility, health, safety, urban_pop, ncol=3)
+```
+```{r}
+lm.life.expectancy = lm(formula = Life.expectancy.at.birth..total..years. ~ Mobile.cellular.subscriptions..per.100.inhabitants..1 + Food.production.index..2004.2006.100. + Fertility.rate..total..live.births.per.woman. + Health.Care.Index + Safety.Index + Urban.population....of.total.population._x, data = dataset)
+summary(lm.life.expectancy)
+```
+
+
+```{r, include=FALSE}
+lm.life.expectancy.2 = lm(formula = Life.expectancy.at.birth..total..years. ~ Mobile.cellular.subscriptions..per.100.inhabitants..1 + Food.production.index..2004.2006.100. + Fertility.rate..total..live.births.per.woman. + Health.Care.Index + Urban.population....of.total.population._x, data = dataset)
+```
+After removing **safety index** from regressors, these are the new $R^2$ and adjusted $R^2$ that we get.
+```{r, echo=FALSE}
+cat("R^2 = ", summary(lm.life.expectancy.2)$r.squared, "\n")
+cat("Adjusted R^2 = ", summary(lm.life.expectancy.2)$adj.r.squared, "\n")
+```
+We can conclude that this variable is not too significant and could be removed without many negative circumstances.
+```{r, include=FALSE}
+lm.life.expectancy.3 = lm(formula = Life.expectancy.at.birth..total..years. ~ Mobile.cellular.subscriptions..per.100.inhabitants..1 + Food.production.index..2004.2006.100. + Fertility.rate..total..live.births.per.woman. + Health.Care.Index, data = dataset)
+```
+And after removing **percent of urban population in total population** from regressors, these are the new $R^2$ and adjusted $R^2$ that we get.
+```{r, echo=FALSE}
+cat("R^2 = ", summary(lm.life.expectancy.3)$r.squared, "\n")
+cat("Adjusted R^2 = ", summary(lm.life.expectancy.3)$adj.r.squared, "\n")
+```
+Again, percent of **urban population in total population** doesn't seem too significant and could be removed in order to make the model more simple.
+```{r, include=FALSE}
+lm.life.expectancy.4 = lm(formula = Life.expectancy.at.birth..total..years. ~ Mobile.cellular.subscriptions..per.100.inhabitants..1 + Food.production.index..2004.2006.100. + Health.Care.Index, data = dataset)
+```
+Let's see what happens if we now remove **fertility rate** from the regressors.
+```{r, echo=FALSE}
+cat("R^2 = ", summary(lm.life.expectancy.4)$r.squared, "\n")
+cat("Adjusted R^2 = ", summary(lm.life.expectancy.4)$adj.r.squared, "\n")
+```
+Now, we could say that **fertility rate** does make some significant impact on this model and we might want to **keep** it.
+
+```{r, include=FALSE}
+dataset.with.dummies.with.qatar = dummy_cols(dataset, select_columns='Region')
+continents <- dataset.with.dummies.with.qatar
+continents$Colour = "black"
+
+#coloring data based kinda on continents
+if(!is.null(continents)) {
+  #Europe
+  continents$Colour[continents$Region=="SouthernEurope"] = "green"
+  continents$Colour[continents$Region=="NorthernEurope"] = "green2"
+  continents$Colour[continents$Region=="WesternEurope"] = "green3"
+  continents$Colour[continents$Region=="EasternEurope"] = "green4"
+  continents$Colour[continents$country=="Croatia"] = "red"
+  #Africa
+  continents$Colour[continents$Region=="SouthernAfrica"] = "yellow"
+  continents$Colour[continents$Region=="NorthernAfrica"] = "yellow"
+  #Asia
+  continents$Colour[continents$Region=="SouthernAsia"] = "darkorange"
+  continents$Colour[continents$Region=="NorthernAsia"] = "darkorange"
+  continents$Colour[continents$Region=="WesternAsia"] = "darkorange"
+  continents$Colour[continents$Region=="EasternAsia"] = "darkorange"
+  continents$Colour[continents$Region=="South-easternAsia"] = "darkorange"
+  #Americas
+  continents$Colour[continents$Region=="SouthAmerica"] = "blue"
+  continents$Colour[continents$Region=="NorthernAmerica"] = "blue"
+  continents$Colour[continents$Region=="CentralAmerica"] = "blue"
+  #Oceania
+  continents$Colour[continents$Region=="Oceania"] = "purple"
+}
+```
+
+```{r, include=FALSE}
+#plot discovery fun
+plot(dataset.with.dummies.with.qatar$X, dataset.with.dummies.with.qatar$GDP.per.capita..current.US.., col = continents$Colour)
+plot(dataset.with.dummies.with.qatar$X, dataset.with.dummies.with.qatar$Economy..Agriculture....of.GVA., col = continents$Colour)
+plot(dataset.with.dummies.with.qatar$X, dataset.with.dummies.with.qatar$Economy..Industry....of.GVA., col = continents$Colour)
+plot(dataset.with.dummies.with.qatar$X, dataset.with.dummies.with.qatar$Economy..Services.and.other.activity....of.GVA., col = continents$Colour)
+#employment in agriculture
+plot(dataset.with.dummies.with.qatar$X, dataset.with.dummies.with.qatar$Employment..Agriculture....of.employed., col = continents$Colour)
+plot(dataset.with.dummies.with.qatar$X, dataset.with.dummies.with.qatar$Employment..Industry....of.employed., col = continents$Colour)
+plot(dataset.with.dummies.with.qatar$X, dataset.with.dummies.with.qatar$Employment..Services....of.employed., col = continents$Colour)
+plot(dataset.with.dummies.with.qatar$X, dataset.with.dummies.with.qatar$Unemployment....of.labour.force., col = continents$Colour)
+plot(dataset.with.dummies.with.qatar$X, dataset.with.dummies.with.qatar$International.mignant.stock.thousands, col = continents$Colour)
+#population growth
+plot(dataset.with.dummies.with.qatar$X, dataset.with.dummies.with.qatar$Population.growth.rate..average.annual..., col = continents$Colour,)
+#trade
+plot(dataset.with.dummies.with.qatar$X, dataset.with.dummies.with.qatar$International.trade..Balance..million.US.., col = continents$Colour,)
+max(dataset.with.dummies.with.qatar$International.trade..Balance..million.US..)
+min(dataset.with.dummies.with.qatar$International.trade..Balance..million.US..)
+dataset.with.dummies.with.qatar
+newPlotData <- dataset.with.dummies.with.qatar[-c(12), ]
+newPlotData <- newPlotData[-c(63),]
+newPlotData <- newPlotData[-c(21),]
+newPlotData <- newPlotData[-c(61),]
+newPlotData
+max(newPlotData$International.trade..Balance..million.US..)
+min(newPlotData$International.trade..Balance..million.US..)
+plot(newPlotData$X, newPlotData$International.trade..Balance..million.US.., col = continents$Colour,)
+#-> so much work for nothing :(
+plot(dataset.with.dummies.with.qatar$X, dataset.with.dummies.with.qatar$Fertility.rate..total..live.births.per.woman., col = continents$Colour,)
+#age of +60
+plot(dataset.with.dummies.with.qatar$X, dataset.with.dummies.with.qatar$Population.age.distribution.60.years...., col = continents$Colour,)
+
+plot(dataset.with.dummies.with.qatar$X, dataset.with.dummies.with.qatar$Health..Total.expenditure....of.GDP., col = continents$Colour,)
+
+plot(dataset.with.dummies.with.qatar$X, dataset.with.dummies.with.qatar$Education..Government.expenditure....of.GDP., col = continents$Colour,)
+
+#energy supply
+plot(without_qatar$X, without_qatar$Energy.production..primary..Petajoules., col = continents$Colour,)
+max(dataset$Energy.production..primary..Petajoules.)
+
+#quality of life
+plot(dataset.with.dummies.with.qatar$X, dataset.with.dummies.with.qatar$Quality.Of.Life.Index, col = continents$Colour,)
+
+#traffic commute time
+plot(dataset.with.dummies.with.qatar$X, dataset.with.dummies.with.qatar$Traffic.commute.time.index, col = continents$Colour,)
+
+#pollution index
+plot(dataset.with.dummies.with.qatar$X,dataset.with.dummies.with.qatar$Pollution.index, col = continents$Colour,)
+
+#climate index
+plot(dataset.with.dummies.with.qatar$X,dataset.with.dummies.with.qatar$Climate.index, col = continents$Colour,)
+
+#air transport
+plot(dataset.with.dummies.with.qatar$X,dataset.with.dummies.with.qatar$Air.transport..freight..million.ton.km., col = continents$Colour,)
+max(dataset.with.dummies.with.qatar$Air.transport..freight..million.ton.km.)
+newPlotData <- dataset.with.dummies.with.qatar[-c(64),]
+plot(newPlotData$X,newPlotData$Air.transport..freight..million.ton.km., col = continents$Colour,)
+
+plot(dataset.with.dummies.with.qatar$X,dataset.with.dummies.with.qatar$Taxes.on.income..profits.and.capital.gains....of.revenue., col = continents$Colour,)
+
+#hist(dataset[westernEurope,GDP.per.capita..current.US..], main="Histogram for GDP per capita US in Western Europe", xlab="GDP per capita US")
+```
+
+\newpage
+
+# LOGISTIC REGRESSION
+
+Logistic regression is a method of machine learning in which we explain the relationship of one binary (doesn't have to be binary, but most of the times it is) dependent variable and one or more ordinal, nominal interval or ratio-level independent variables.
+
+## Predicting if a country is a European one
+
+We would like to be able to predict if a country is in Europe based on some of the variables. First of all, we'll make some assumptions. We think that Europe countries should have a lower **percent of population within the age span 0-14 years**. We also think that they might have a lower percent of **participation of female labour force**, **fertility rate**, **urban population growth rate** and **traffic commute time**.
+
+We think that they should have a higher **health expanditure** and higher **number of woman in parliament**.
+
+
+```{r}
+# eliminate Hong Kong, SAR because it has NA in some row which we need
+dataset.logistic.regression = dataset[-c(11), ]
+```
+We also added a dummy variable representing whether the country is a European one.
+```{r, include=FALSE}
+is.europe = as.character(dataset.logistic.regression$Region)
+is.europe = replace(is.europe, is.europe != "WesternEurope" & is.europe != "EasternEurope" & is.europe != "SouthernEurope" & is.europe != "NorthernEurope", FALSE)
+is.europe = replace(is.europe, is.europe == "WesternEurope" | is.europe == "EasternEurope" | is.europe == "SouthernEurope" | is.europe == "NorthernEurope", TRUE)
+is.europe = as.logical(is.europe)
+dataset.logistic.regression$is.europe = is.europe
+```
+
+```{r include=FALSE}
+for (column in colnames(dataset.logistic.regression)) {
+    if(column != "X" &&
+       column != "country" &&
+       column != "Region" &&
+       column != "Energy.supply.per.capita..Gigajoules." && 
+       column != "is.europe") {
+      
+          result <- cor(x=dataset.logistic.regression[, column], y=dataset.logistic.regression$is.europe, use = "na.or.complete")
+          
+          if(!is.na(result) && (result > 0.4 || result < -0.4)) {
+            cat(column, "\n")
+          }
+      }
+}
+```
+
+```{r}
+logreg.model = glm(is.europe ~ Labour.force.participation..female.pop + `Population.age.distribution.0-14.years....` + Fertility.rate..total..live.births.per.woman. + Pollution.index + Traffic.commute.time.index + Urban.population.growth.rate..average.annual... + Quality.Of.Life.Index + Health..Total.expenditure....of.GDP. + Seats.held.by.women.in.national.parliaments.., data = dataset.logistic.regression)
+summary(logreg.model)
+```
+We can see quite a lot of room for improvement because some regressors are insignificant.
+```{r}
+cat("R^2 = ", 1 - logreg.model$deviance/logreg.model$null.deviance, "\n")
+```
+
+Confusion matrix:
+```{r, echo=FALSE}
+yHat <- logreg.model$fitted.values > 0.5
+tab <- table(dataset.logistic.regression$is.europe, yHat)
+tab
+```
+
+
+```{r, echo=FALSE}
+accuracy = sum(diag(tab)) / sum(tab)
+precision = tab[2,2] / sum(tab[,2])
+recall = tab[2,2] / sum(tab[2,])
+specificity = tab[1,1] / sum(tab[,1])
+f1_score = 2 * (precision * recall) / (precision + recall)
+cat("accuracy: ", accuracy, "\n")
+cat("precision: ", precision, "\n")
+cat("recall: ", recall, "\n")
+cat("specificity: ", specificity, "\n")
+cat("f1_score: ", f1_score, "\n")
+```
+
+
+```{r include=FALSE}
+cor(dataset.logistic.regression$`Population.age.distribution.0-14.years....`, dataset.logistic.regression$Labour.force.participation..female.pop)
+cor(dataset.logistic.regression$`Population.age.distribution.0-14.years....`, dataset.logistic.regression$Traffic.commute.time.index)
+cor(dataset.logistic.regression$`Population.age.distribution.0-14.years....`, dataset.logistic.regression$Fertility.rate..total..live.births.per.woman.)
+cor(dataset.logistic.regression$`Population.age.distribution.0-14.years....`, dataset.logistic.regression$Urban.population.growth.rate..average.annual...)
+cor(dataset.logistic.regression$`Population.age.distribution.0-14.years....`, dataset.logistic.regression$Traffic.commute.time.index)
+cor(dataset.logistic.regression$Labour.force.participation..female.pop, dataset.logistic.regression$Traffic.commute.time.index)
+cor(dataset.logistic.regression$Labour.force.participation..female.pop, dataset.logistic.regression$Pollution.index)
+cor(dataset.logistic.regression$Labour.force.participation..female.pop, dataset.logistic.regression$Fertility.rate..total..live.births.per.woman.)
+cor(dataset.logistic.regression$Labour.force.participation..female.pop, dataset.logistic.regression$Urban.population.growth.rate..average.annual...)
+```
+
+Previously, we also checked for correlation between regressors but we'll omit that chunk of code.
+
+The countries for which our model gives *false positives* are **Canada**, **Japan** and **Republic of Korea**.
+The countries for which our model gives *false negatives* are **Ireland** and **Switzerland**.
+
+For Croatia, model confidently claims that it's a European country.
+
+Let's try removing pollution index index from the model and see how it responds.
+
+```{r, include=FALSE}
+logreg.model.2 = glm(is.europe ~ Labour.force.participation..female.pop + `Population.age.distribution.0-14.years....` + Fertility.rate..total..live.births.per.woman. + Traffic.commute.time.index + Urban.population.growth.rate..average.annual... + Quality.Of.Life.Index + Health..Total.expenditure....of.GDP. + Seats.held.by.women.in.national.parliaments.., data = dataset.logistic.regression)
+```
+
+```{r}
+anova(logreg.model, logreg.model.2, test = "LRT")
+```
+P-value of Chi-Squared test shows us that there are no significant differences between this and a previous model.
+Let's go one step further and try removing **traffic commute time index** and see how the model responds.
+
+```{r, include=FALSE}
+logreg.model.3 = glm(is.europe ~ Labour.force.participation..female.pop + `Population.age.distribution.0-14.years....` + Fertility.rate..total..live.births.per.woman. + Urban.population.growth.rate..average.annual... + Quality.Of.Life.Index + Health..Total.expenditure....of.GDP. + Seats.held.by.women.in.national.parliaments.., data = dataset.logistic.regression)
+```
+
+```{r}
+anova(logreg.model, logreg.model.3, test = "LRT")
+```
+
+Once again, we can see that there are no significant differences between this model and the first one. We'll also try removing **quality of life index**.
+```{r}
+logreg.model.4 = glm(is.europe ~ Labour.force.participation..female.pop + `Population.age.distribution.0-14.years....` + Fertility.rate..total..live.births.per.woman. + Urban.population.growth.rate..average.annual... + Health..Total.expenditure....of.GDP. + Seats.held.by.women.in.national.parliaments.., data = dataset.logistic.regression)
+
+anova(logreg.model, logreg.model.4, test = "LRT")
+```
+Once again, the removal of the **quality of life index** variable shows no significant degradation in our model performance.
+
+```{r}
+summary(logreg.model.4)
+```
+Now, all the variables are significant and we will not proceed with new regressor removals.
+
+Confusion matrix:
+```{r, echo=FALSE}
+yHat <- logreg.model.4$fitted.values > 0.5
+tab <- table(dataset.logistic.regression$is.europe, yHat)
+tab
+```
+We removed **three** regressors and still got the same result!
+
+**Here we need to say that we trained and tested our model on the same data which is never done.**
+
+The reason for this was to show basic principles of logistic regression and we also don't have enough examples to split the dataset on train and test.
+
+Now let's graphically check if our assumptions were well made.
+
+```{r echo=FALSE}
+labour = ggplot(data=dataset.logistic.regression) + geom_point(mapping = aes(x=X, y=Labour.force.participation..female.pop, color = is.europe)) + labs(title = "Female labour participation", y="Female labour participation", x="")
+
+age.distribution = ggplot(data=dataset.logistic.regression) + geom_point(mapping = aes(x=X, y=`Population.age.distribution.0-14.years....`, color = is.europe)) + labs(title = "Population aged 0-14 years", y="Population aged 0-14 years", x="")
+
+fertility = ggplot(data=dataset.logistic.regression) + geom_point(mapping = aes(x=X, y=Fertility.rate..total..live.births.per.woman., color = is.europe)) + labs(title = "Fertility rate", y="Fertility rate", x="")
+
+urban.population = ggplot(data=dataset.logistic.regression) + geom_point(mapping = aes(x=X, y=Urban.population.growth.rate..average.annual..., color = is.europe)) + labs(title = "Urban population growth rate", y="Urban population growth rate", x="")
+
+health.expanditure = ggplot(data=dataset.logistic.regression) + geom_point(mapping = aes(x=X, y=Health..Total.expenditure....of.GDP., color = is.europe)) + labs(title = "Health expanditure", y="Heath expanditure", x="")
+
+woman.in.parliament = ggplot(data=dataset.logistic.regression) + geom_point(mapping = aes(x=X, y=Seats.held.by.women.in.national.parliaments.., color = is.europe)) + labs(title = "Woman in parliament", y="Woman in parliament", x="")
+
+traffic.commute = ggplot(data=dataset.logistic.regression) + geom_point(mapping = aes(x=X, y=Traffic.commute.time.index , color = is.europe)) + labs(title = "Traffic commute time", y="Traffic commute time", x="")
+grid.arrange(labour, age.distribution, fertility, urban.population, ncol=2)
+grid.arrange(health.expanditure, woman.in.parliament, traffic.commute, ncol=2)
+```
+They were indeed!
+
+Even though the scatter plot of, for example, **traffic commute time index** indicates that it should have an impact on predicting whether or not a country is European, that's not really the case in our logistic regression model.
+
+Let's see its correlation with all the other regressors in our model:
+
+```{r, echo=FALSE}
+cat("Correlation with female labour force participation: ", cor(dataset.logistic.regression$Traffic.commute.time.index, dataset.logistic.regression$Labour.force.participation..female.pop), "\n")
+cat("Correlation with pop. age distribution 0-14 years: ", cor(dataset.logistic.regression$Traffic.commute.time.index, dataset.logistic.regression$`Population.age.distribution.0-14.years....`), "\n")
+cat("Correlation with fertility rate: ", cor(dataset.logistic.regression$Traffic.commute.time.index, dataset.logistic.regression$Fertility.rate..total..live.births.per.woman.), "\n")
+cat("Correlation with urban population growth rate: ", cor(dataset.logistic.regression$Traffic.commute.time.index, dataset.logistic.regression$Urban.population.growth.rate..average.annual...), "\n")
+cat("Correlation with health expanditure: ", cor(dataset.logistic.regression$Traffic.commute.time.index, dataset.logistic.regression$Health..Total.expenditure....of.GDP.), "\n")
+cat("Correlation with number of woman in parliament: ", cor(dataset.logistic.regression$Traffic.commute.time.index, dataset.logistic.regression$Seats.held.by.women.in.national.parliaments..), "\n")
+```
+Here we can see that it's also not really directly correlated to any of our used regressors. What's probably the case is that it's described by a combination (or combinations) of them and thus ends up being insignificant.
+
+
+# SVM
+
+Another approach that we didn't learn on this subject, but would like to try is **Support Vector Machines**.
+
+It is a supervised machine learning method which is based on taking data points from regressors, putting them into a high-dimensional space (if the number of regressors is high-dimensional, and most of the times it is) and creating a **hyperplane** which is supposed to divide one class from another. 
+
+That's why this method is mostly used for two-group classification. The elements from one group should ideally be as far as possible from those from another group.
+
+The hyperplane is chosen by maximizing the margins from both tags. If the number of regressors is $n$, then out hyperplane is $n$-dimensional.
+
+## Predicting if a country is a European one
+
+```{r}
+svm.classifier = svm(formula = is.europe ~ Labour.force.participation..female.pop + `Population.age.distribution.0-14.years....` + Fertility.rate..total..live.births.per.woman. + Urban.population.growth.rate..average.annual... + Health..Total.expenditure....of.GDP. + Seats.held.by.women.in.national.parliaments.., data = dataset.logistic.regression, type = 'C-classification', kernel = 'linear')
+```
+
+Confusion matrix:
+```{r}
+yPred <- svm.classifier$fitted
+tab <- table(dataset.logistic.regression$is.europe, yPred)
+tab
+```
+We can see that an SVM model gives an even better prediction than the logistic regression one, using the same columns as regressors.
+
+**Here we need to say that we trained and tested our model on the same data which is never done. **
+
+We don't have enough data to split our dataset and it's only to show how SVM can be used.
+
+\newpage
+
+# CONCLUSION
+
+To start with, we would like to reflect on the given dataset. Although there is a great number of features, we have found that it was quite difficult to draw strong conclusions with that small amount of rows. In most places where it was a condition for data to be normally distributed we had to “stretch” the definition because of the small sample and it was also difficult to group data because most groups were simply too small to do anything with.
+
+Next, let's discuss the results. There are many outliers and certain countries are outliers in many features. One of the countries that stands out is Qatar with a very big outlier number compared to its small size. Another notable outlier is America where it was surprising to find out how extremely low its international trade balance is and how high its international air travel is compared to its pollution index not being that high. Croatia is not an outlier in any of the features. When comparing Europe to other world countries it was good for us, as Europeans, to notice that Europe is well positioned when fighting current world issues. All ANOVA assumptions were rejected which was surprising considering we expected macroeconomic features to be similarly distributed across European regions. When trying to predict which countries are European we found out that Ireland and Switzerland didn’t fit the mold however Canada, Japan and Republic of Korea were predicted to be European. Croatia was predicted to be an European country. 
+
+For further research it would be great to have more data and to compare different continents and regions. It would also be interesting to compare countries through different years.
+
+The dataset was fun but small.
